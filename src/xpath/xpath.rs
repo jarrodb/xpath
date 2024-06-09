@@ -36,7 +36,7 @@ impl fmt::Display for XPath {
         if let Some(ref root) = self.root {
             write!(f, "{}", root)
         } else {
-            write!(f, "") // Optionally handle the case of an empty XPath
+            write!(f, "") // empty XPath
         }
     }
 }

@@ -1,5 +1,7 @@
 #[derive(Debug, PartialEq)]
 pub enum ParseError {
-    NodeNameError,
+    EmptyAttributeError,
+    EmptyPathError,
+    SyntaxError,
     StateError,
 }
