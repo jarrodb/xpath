@@ -64,10 +64,23 @@ impl XPath {
                     mode = ParseState::Value;
                     buffer.clear();
                 }
+                (']', ParseState::Predicate) | (',', ParseState::Predicate) => {
+                    // This should error because we should only hit ] or ,
+                    // if we are in the Attribute or Value state
+                    return Err(ParseError::EmptyAttributeError);
+                }
+                ('=', ParseState::Value) => {
+                    // = should transition to the Value state so encountering
+                    // another = is an error
+                    return Err(ParseError::SyntaxError);
+                }
                 (']', ParseState::Value) | (',', ParseState::Value) => {
-                    // TODO: fail if buffer empty?
                     // Update the last Attribute that was appended to the node
                     // in the previous state
+                    if buffer.is_empty() {
+                        return Err(ParseError::EmptyAttributeError);
+                    }
+
                     if let Some(ref mut n) = node {
                         if let Some(last) = n.predicates.last_mut() {
                             if let Predicate::Attribute(attr) = last {
@@ -86,10 +99,17 @@ impl XPath {
 
                     buffer.clear();
                 }
-                (_, ParseState::Node) => {
-                    // support // root node
-                    if !c.is_alphanumeric() || c == '_' {
-                        return Err(ParseError::NodeNameError);
+                (_, ParseState::Node | ParseState::Predicate) => {
+                    if buffer.is_empty() {
+                        // Can only start with alpha and _
+                        if !c.is_alphabetic() && c != '_' {
+                            return Err(ParseError::SyntaxError);
+                        }
+                    } else {
+                        // Otherwise, alphanumeris - . _
+                        if !(c.is_alphanumeric() || c == '-' || c == '.' || c == '_') {
+                            return Err(ParseError::SyntaxError);
+                        }
                     }
 
                     buffer.push(c);
@@ -104,7 +124,7 @@ impl XPath {
         // Process remaining buffer if it exists
         if !buffer.is_empty() {
             if mode != ParseState::Node {
-                return Err(ParseError::StateError);
+                return Err(ParseError::SyntaxError);
             }
 
             let new_node = Node::new(buffer);
@@ -137,16 +157,56 @@ mod tests {
             },
             TestCase {
                 input: "/#invalid/node",
-                expected: Err(ParseError::NodeNameError),
+                expected: Err(ParseError::SyntaxError),
             },
             TestCase {
                 input: "/invalid[/xpath",
-                expected: Err(ParseError::StateError),
+                expected: Err(ParseError::SyntaxError),
             },
             TestCase {
                 input: "/invalid[/x]path",
-                expected: Err(ParseError::StateError),
+                expected: Err(ParseError::SyntaxError),
             },
+            TestCase {
+                input: "/invalid[=]",
+                expected: Err(ParseError::EmptyAttributeError),
+            },
+            TestCase {
+                input: "/invalid[/x]path[",
+                expected: Err(ParseError::SyntaxError),
+            },
+            TestCase {
+                input: "/invalid[/x]path[=]",
+                expected: Err(ParseError::SyntaxError),
+            },
+            TestCase {
+                input: "/valid绝对路径",
+                expected: Ok("/valid绝对路径".to_string()),
+            },
+            TestCase {
+                input: "",
+                expected: Ok("".to_string()),
+            },
+            TestCase {
+                input: "/invalid[node==value]",
+                expected: Err(ParseError::SyntaxError),
+            },
+            TestCase {
+                input: "/invalid\\path",
+                expected: Err(ParseError::SyntaxError),
+            },
+            TestCase {
+                input: "/unbalanced[bracket/path",
+                expected: Err(ParseError::SyntaxError),
+            },
+            TestCase {
+                input: "/invalid[character$=value]",
+                expected: Err(ParseError::SyntaxError),
+            },
+            //TestCase {
+            //input: "/valid/complex[node=1][@attr='value']/leaf",
+            //expected: Ok("/valid/complex[node=1][@attr='value']/leaf".to_string()),
+            //},
         ];
 
         for test in tests {
